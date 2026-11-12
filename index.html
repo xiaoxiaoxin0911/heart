@@ -51,12 +51,28 @@
     color: #6b7280; z-index: 9; pointer-events: none;
     transition: opacity .4s;
   }
+
+  /* 点击屏幕冒出的小爱心 */
+  .tapheart {
+    position: fixed; left: 0; top: 0; width: var(--s); height: var(--s);
+    pointer-events: none; z-index: 20; transform: translate(-50%, -50%);
+    animation: heartpop 1s cubic-bezier(.2, .7, .3, 1) forwards;
+    will-change: transform, opacity;
+  }
+  .tapheart svg { width: 100%; height: 100%; display: block;
+    filter: drop-shadow(0 2px 6px rgba(255, 90, 130, .45)); }
+  @keyframes heartpop {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(.15) rotate(var(--r, 0deg)); }
+    16%  { opacity: 1; transform: translate(-50%, -58%) scale(1.14) rotate(var(--r, 0deg)); }
+    55%  { opacity: .95; transform: translate(calc(-50% + var(--dx, 0px)), -108%) scale(.92) rotate(var(--r, 0deg)); }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--dx2, 0px)), -190%) scale(.5) rotate(var(--r, 0deg)); }
+  }
   .gone { opacity: 0 !important; pointer-events: none !important; }
 </style>
 </head>
 <body>
 <div id="stage"></div>
-<div id="hint">点空白处隐藏控制条 · 点控制条右侧 × 也能收起</div>
+<div id="hint">点屏幕放小爱心 · 点控制条右侧 × 收起</div>
 <div id="bar"></div>
 <script>
 (function () {
@@ -284,8 +300,44 @@
   });
   btn("×", function () { bar.classList.toggle("gone"); });
 
-  // 点空白处收起/展开控制条
-  stage.addEventListener("click", function () { bar.classList.toggle("gone"); });
+  // 点屏幕冒小爱心
+  var HEART_PATH = "M16 29S0 18.5 0 9.5C0 4 4 0 9 0c3 0 5.5 1.5 7 4 1.5-2.5 4-4 7-4 5 0 9 4 9 9.5C32 18.5 16 29 16 29z";
+  var TAP_COLORS = ["#ff4d6d", "#ff6b8b", "#f472b6", "#fb7185", "#ff8fab", "#e11d48", "#ffb3c1"];
+
+  function tapHeart(x, y) {
+    var n = 3 + Math.floor(Math.random() * 3);
+    for (var i = 0; i < n; i++) {
+      (function (i) {
+        var size = (13 + Math.random() * 9) * (i ? 0.8 : 1.2);
+        var d = document.createElement("div");
+        d.className = "tapheart";
+        d.style.setProperty("--s", size.toFixed(1) + "px");
+        d.style.setProperty("--r", (Math.random() * 36 - 18).toFixed(0) + "deg");
+        d.style.setProperty("--dx", (Math.random() * 36 - 18).toFixed(0) + "px");
+        d.style.setProperty("--dx2", (Math.random() * 60 - 30).toFixed(0) + "px");
+        d.style.left = (x + Math.random() * 20 - 10) + "px";
+        d.style.top = (y + Math.random() * 14 - 7) + "px";
+        d.style.animationDelay = (i * 45) + "ms";
+        d.innerHTML = '<svg viewBox="0 0 32 29"><path d="' + HEART_PATH + '" fill="' +
+          TAP_COLORS[Math.floor(Math.random() * TAP_COLORS.length)] + '"/></svg>';
+        document.body.appendChild(d);
+        setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1300 + i * 45);
+      })(i);
+    }
+    try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) { }
+  }
+
+  // 点空白处：冒小爱心（不再收起控制条，收起来点 ×）
+  if (window.PointerEvent) {
+    stage.addEventListener("pointerdown", function (e) { tapHeart(e.clientX, e.clientY); });
+  } else {
+    stage.addEventListener("touchstart", function (e) {
+      var t = e.changedTouches[0];
+      if (t) tapHeart(t.clientX, t.clientY);
+    }, { passive: true });
+  }
+
+  // 提示语
 
   hint.addEventListener("click", function () { hint.classList.add("gone"); });
   setTimeout(function () { hint.classList.add("gone"); }, 6000);
