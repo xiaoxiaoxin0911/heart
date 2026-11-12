@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0f">
+<title>爱心祝福弹窗</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #0a0a0f;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  #stage { position: fixed; inset: 0; }
+
+  .pop {
+    position: absolute; white-space: nowrap; border-radius: 8px;
+    padding: 4px 7px; border: 1px solid;
+    font: 700 12px/1.15 -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .45);
+    opacity: 0; transform: translate(-50%, -50%) scale(.55);
+    transition: opacity .16s ease, transform .22s cubic-bezier(.2, 1.5, .4, 1);
+    will-change: transform, opacity;
+  }
+  .pop.in { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  .pop.out {
+    opacity: 0; transform: translate(-50%, -50%) scale(.75);
+    transition: opacity .28s ease, transform .28s ease;
+  }
+
+  #bar {
+    position: fixed; left: 50%; bottom: max(12px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;
+    max-width: calc(100vw - 20px); padding: 7px 8px; border-radius: 14px;
+    background: rgba(28, 30, 38, .88); -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px); z-index: 10;
+    font: 11px/1 -apple-system, "PingFang SC", sans-serif; color: #fff;
+  }
+  #bar button {
+    border: 0; border-radius: 9px; background: #3a4152; color: #fff;
+    padding: 7px 8px; font: 600 11px/1 -apple-system, "PingFang SC", sans-serif;
+    min-width: 30px;
+  }
+  #bar button:active { background: #59637a; }
+  #bar .tag { align-self: center; opacity: .75; padding: 0 1px; font-size: 10px; }
+  #hint {
+    position: fixed; left: 0; right: 0; top: max(10px, env(safe-area-inset-top));
+    text-align: center; font: 11px/1.4 -apple-system, "PingFang SC", sans-serif;
+    color: #6b7280; z-index: 9; pointer-events: none;
+    transition: opacity .4s;
+  }
+  .gone { opacity: 0 !important; pointer-events: none !important; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="hint">点空白处隐藏控制条 · 点控制条右侧 × 也能收起</div>
+<div id="bar"></div>
+<script>
+(function () {
+  "use strict";
+
+  // ---------- 祝福语（3~10 字） ----------
+  var BLESSINGS = [
+    "新年快乐", "平安喜乐", "心想事成", "万事胜意", "好运连连", "天天开心",
+    "笑口常开", "一生顺遂", "前程似锦", "岁岁平安", "喜乐无忧", "所愿皆成",
+    "得偿所愿", "福气满满", "健康顺遂", "花开富贵", "温柔有趣", "人间值得",
+    "向阳而生", "一路生花", "未来可期", "可爱如你", "诸事顺遂", "事事如意",
+    "长乐未央", "美梦成真", "元气满满", "闪闪发光", "万事顺利", "前程万里",
+    "平安顺遂", "甜甜蜜蜜", "幸福安康", "好运常伴", "心之所向", "一切顺利",
+    "岁岁常欢愉", "天天好心情", "会发光的你", "阳光正好"
+  ];
+
+  // 淡彩弹窗：[边框, 底色, 文字色]
+  var PASTEL = [
+    ["#f2a6ba", "#ffe6ee", "#7c2d42"],
+    ["#c9a6ff", "#f2e8ff", "#5b2d7c"],
+    ["#a6c8f2", "#e6f1ff", "#2d4a7c"],
+    ["#a6e0b8", "#e6f8ec", "#2d5c3a"],
+    ["#ecd08a", "#fff6d9", "#7c5c2d"],
+    ["#e0e0e0", "#ffffff", "#4a4a4a"],
+    ["#f2a6a6", "#ffe6e6", "#7c2d2d"],
+    ["#9ad8d8", "#e0f8f8", "#2d5c5c"],
+    ["#f2c8a6", "#fff0e0", "#7c4a2d"],
+    ["#d8d8a6", "#f8f8e0", "#5c5c2d"]
+  ];
+
+  // ---------- 爱心轮廓（参数曲线，x∈[-1,1]，y：0 是顶部凹口，1 是心尖） ----------
+  var OUT = (function () {
+    var a = [];
+    for (var k = 0; k < 160; k++) {
+      var t = 2 * Math.PI * k / 160;
+      var x = Math.pow(Math.sin(t), 3);
+      var y = (5 - (13 * Math.cos(t) - 5 * Math.cos(2 * t)
+        - 2 * Math.cos(3 * t) - Math.cos(4 * t))) / 22;
+      a.push([x, y]);
+    }
+    return a;
+  })();
+
+  function rowWidth(y) {
+    var best = 0;
+    for (var i = 0; i < OUT.length; i++) {
+      if (Math.abs(OUT[i][1] - y) < 0.02) best = Math.max(best, Math.abs(OUT[i][0]));
+    }
+    return best;
+  }
+
+  function shuffle(a) {
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  // ---------- 自适应参数 ----------
+  var P = { size: 400, fs: 12, dx: 70, dy: 24, cx: 0, cy: 0 };
+  var stage = document.getElementById("stage");
+  var bar = document.getElementById("bar");
+  var hint = document.getElementById("hint");
+
+  function layout() {
+    var w = window.innerWidth, h = window.innerHeight;
+    P.size = Math.min(w * 0.92, h * 0.62, 620);
+    P.fs = Math.max(9, Math.min(13, Math.round(P.size / 28)));
+    P.dx = Math.round(P.fs * 4.6 + 14);
+    P.dy = Math.round(P.fs + 12);
+    P.cx = w / 2;
+    P.cy = h / 2 - 6;
+    document.documentElement.style.setProperty("--fs", P.fs + "px");
+  }
+
+  function heartPoints() {
+    var size = P.size, dx = P.dx, dy = P.dy;
+    var hs = size * 0.9 / 1.318;
+    var pts = [];
+    for (var py = -Math.round(size * 0.45); py <= size * 0.45; py += dy) {
+      var half = rowWidth(py / hs + 0.34) * size / 2;
+      if (half <= 0) continue;
+      var n = Math.max(1, Math.round(half * 2 / dx));
+      var rdx = half * 2 / n;
+      for (var k = 0; k < n; k++) {
+        var px = -half + rdx * (k + 0.5);
+        pts.push([px + (Math.random() - 0.5) * rdx * 0.28,
+                  py + (Math.random() - 0.5) * dy * 0.5]);
+      }
+    }
+    return shuffle(pts);
+  }
+
+  // ---------- 状态 ----------
+  var st = {
+    rate: 12, mode: "heart", paused: false,
+    acc: 0, last: performance.now(),
+    phase: "build", phaseUntil: 0,
+    pending: [], pops: []
+  };
+
+  function pickText() { return BLESSINGS[Math.floor(Math.random() * BLESSINGS.length)]; }
+
+  function addPop(text, x, y) {
+    var c = PASTEL[Math.floor(Math.random() * PASTEL.length)];
+    var d = document.createElement("div");
+    d.className = "pop";
+    d.style.cssText = "left:" + x + "px;top:" + y + "px;border-color:" + c[0] +
+                      ";background:" + c[1] + ";color:" + c[2] +
+                      ";font-size:" + P.fs + "px";
+    d.textContent = text;
+    stage.appendChild(d);
+    st.pops.push(d);
+    requestAnimationFrame(function () { d.classList.add("in"); });
+    return d;
+  }
+
+  function killPop(d) {
+    var i = st.pops.indexOf(d);
+    if (i >= 0) st.pops.splice(i, 1);
+    d.classList.add("out");
+    setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 300);
+  }
+
+  function spawn() {
+    if (st.mode === "heart") {
+      if (!st.pending.length) return false;
+      var p = st.pending.shift();
+      addPop(pickText(), P.cx + p[0], P.cy + p[1]);
+      return true;
+    }
+    // 散落：全屏随机
+    var t = pickText();
+    var w = P.fs * t.length + 16, h = P.fs + 16;
+    addPop(t, 8 + Math.random() * (window.innerWidth - w - 16),
+              8 + Math.random() * (window.innerHeight - h - 16));
+    if (st.pops.length > 260) killPop(st.pops[0]);
+    return true;
+  }
+
+  function rebuild() {
+    st.pending = (st.mode === "heart") ? heartPoints() : [];
+    st.phase = "build";
+  }
+
+  // ---------- 主循环 ----------
+  function tick(now) {
+    var dt = Math.min(0.1, (now - st.last) / 1000);
+    st.last = now;
+
+    if (!st.paused) {
+      st.acc += dt * st.rate;
+      while (st.acc >= 1) {
+        st.acc -= 1;
+        if (!spawn()) break;
+      }
+
+      if (st.mode === "heart") {
+        if (st.phase === "build" && !st.pending.length) {
+          st.phase = "hold"; st.phaseUntil = now + 2200;
+        } else if (st.phase === "hold" && now >= st.phaseUntil) {
+          st.phase = "clear"; st.phaseUntil = now;
+        } else if (st.phase === "clear") {
+          if (now >= st.phaseUntil) {
+            st.phaseUntil = now + 1000 / st.rate;
+            if (st.pops.length) {
+              killPop(st.pops[Math.floor(Math.random() * st.pops.length)]);
+            } else {
+              st.phase = "rest"; st.phaseUntil = now + 700;
+            }
+          }
+        } else if (st.phase === "rest" && now >= st.phaseUntil) {
+          rebuild();
+        }
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- 控制条 ----------
+  function btn(label, fn, cls) {
+    var b = document.createElement("button");
+    b.textContent = label;
+    if (cls) b.className = cls;
+    b.addEventListener("click", function (e) { e.stopPropagation(); fn(); });
+    bar.appendChild(b);
+    return b;
+  }
+  function tag(text) {
+    var s = document.createElement("span");
+    s.className = "tag"; s.textContent = text;
+    bar.appendChild(s);
+    return s;
+  }
+
+  var tRate, tSize, bPause, bMode;
+
+  function updateBar() {
+    tRate.textContent = st.rate + "个/秒";
+    tSize.textContent = Math.round(P.size) + "px";
+    bPause.textContent = st.paused ? "▶ 继续" : "⏸ 暂停";
+    bMode.textContent = st.mode === "heart" ? "🧩 爱心" : "🎲 散落";
+  }
+
+  bPause = btn("⏸ 暂停", function () { st.paused = !st.paused; updateBar(); });
+  btn("−", function () { st.rate = Math.max(1, st.rate - 2); updateBar(); });
+  tRate = tag("12个/秒");
+  btn("+", function () { st.rate = Math.min(60, st.rate + 2); updateBar(); });
+  btn("小", function () { P.size = Math.max(140, P.size * 0.88); layout(); rebuild(); updateBar(); });
+  tSize = tag("400px");
+  btn("大", function () { P.size = Math.min(900, P.size * 1.14); layout(); rebuild(); updateBar(); });
+  bMode = btn("🧩 爱心", function () {
+    st.mode = st.mode === "heart" ? "scatter" : "heart";
+    rebuild(); updateBar();
+  });
+  btn("↻ 重拼", function () { st.pops.slice().forEach(killPop); rebuild(); });
+  btn("⛶ 全屏", function () {
+    var el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) {
+      el.requestFullscreen().catch(function () {});
+    } else if (document.exitFullscreen) {
+      document.exitFullscreen();
+    }
+  });
+  btn("×", function () { bar.classList.toggle("gone"); });
+
+  // 点空白处收起/展开控制条
+  stage.addEventListener("click", function () { bar.classList.toggle("gone"); });
+
+  hint.addEventListener("click", function () { hint.classList.add("gone"); });
+  setTimeout(function () { hint.classList.add("gone"); }, 6000);
+
+  // ---------- 启动 ----------
+  function resize() {
+    var had = st.pops.length > 0;
+    layout();
+    if (had) {
+      st.pops.slice().forEach(killPop);
+      rebuild();
+    }
+  }
+  window.addEventListener("resize", resize, { passive: true });
+  window.addEventListener("orientationchange", function () { setTimeout(resize, 260); });
+
+  layout();
+  rebuild();
+  updateBar();
+  requestAnimationFrame(function (t) { st.last = t; requestAnimationFrame(tick); });
+})();
+</script>
+</body>
+</html>
